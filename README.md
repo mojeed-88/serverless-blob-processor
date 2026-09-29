@@ -1,494 +1,176 @@
 # FastShip — Azure Cloud & DevOps Engineering Project
 
-> A cloud-native, event-driven invoice processing system built with **Azure Functions, .NET, Azure Storage, Event Grid, Managed Identity, Terraform, Application Insights, Azure Monitor, and GitHub Actions CI/CD**.
+An event-driven invoice processing platform built with **Azure Functions, .NET, Azure Storage, Event Grid, Terraform, Managed Identity, Azure RBAC, GitHub Actions, OIDC, Application Insights, Azure Monitor, and OpenTelemetry**.
+
+FastShip demonstrates how to **provision, secure, deploy, monitor, troubleshoot, and recover** a cloud-native Azure workload using Infrastructure as Code and modern DevOps practices.
 
 ---
 
 ## Project Overview
 
-**FastShip** is an end-to-end Azure Cloud and DevOps engineering project designed to demonstrate how a real cloud application can be built, secured, monitored, provisioned, deployed, and recovered using modern Azure and DevOps practices.
+FastShip automatically processes invoice files uploaded to a private Azure Blob Storage container.
 
-The system automatically processes invoice files uploaded to Azure Blob Storage.
-
-When an invoice is uploaded:
-
-1. Azure Storage generates a blob event.
-2. Azure Event Grid detects the event.
-3. Event Grid invokes the Azure Function.
-4. The Function processes the invoice.
-5. Processing state is stored in Azure Table Storage.
-6. Failed processing can be retried and eventually recorded for dead-letter recovery.
-7. Application telemetry is sent to Application Insights.
-8. Azure Monitor provides operational monitoring and alerting.
-
-The infrastructure is managed using **Terraform**, while **GitHub Actions** provides CI/CD using **Azure OpenID Connect (OIDC)** authentication instead of long-lived deployment credentials.
-
----
-
-## Architecture
-
-```text
-                         ┌─────────────────────┐
-                         │      Developer      │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │   GitHub Repository │
-                         └──────────┬──────────┘
-                                    │
-                             Pull Request
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │   GitHub Actions CI │
-                         │ Build + Validation  │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                              Merge to Main
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │   GitHub Actions CD │
-                         └──────────┬──────────┘
-                                    │
-                       Azure OIDC Authentication
-                                    │
-                    ┌───────────────┴───────────────┐
-                    │                               │
-                    ▼                               ▼
-             ┌─────────────┐                 ┌──────────────┐
-             │  Terraform  │                 │ Function App │
-             │Infrastructure│                │  Deployment  │
-             └──────┬──────┘                 └──────┬───────┘
-                    │                               │
-                    └───────────────┬───────────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │       Azure         │
-                         └─────────────────────┘
-```
-
-### Application Event Flow
+The application follows an event-driven architecture:
 
 ```text
 Invoice Upload
       │
       ▼
-┌─────────────────────┐
-│ Azure Blob Storage  │
-│ invoices container  │
-└──────────┬──────────┘
-           │
-           │ BlobCreated Event
-           ▼
-┌─────────────────────┐
-│  Azure Event Grid   │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│   BlobProcessor     │
-│   Azure Function    │
-└──────────┬──────────┘
-           │
-           ▼
-     Invoice Processing
-           │
-      ┌────┴────┐
-      │         │
-      ▼         ▼
-Processed     Failure /
-Invoices      Retry
-Table           │
-                ▼
-        Poison Processing
-                │
-                ▼
-       InvoiceDeadLetters
-              Table
+Azure Blob Storage
+      │
+      │ BlobCreated Event
+      ▼
+Azure Event Grid
+      │
+      ▼
+Azure Function
+BlobProcessor
+      │
+      ▼
+Invoice Processing
+      │
+      ├───────────────┐
+      ▼               ▼
+ProcessedInvoices   Failure / Retry
+Table Storage          │
+                       ▼
+                InvoiceDeadLetters
+                   Table Storage
+```
 
-                │
-                ▼
-      Application Insights
-                │
-                ▼
-          Azure Monitor
+The platform also includes:
+
+* Infrastructure as Code with Terraform
+* Managed Identity and Azure RBAC
+* GitHub Actions CI/CD
+* GitHub → Azure OIDC authentication
+* Application Insights and Azure Monitor
+* OpenTelemetry
+* Health checks
+* Idempotency protection
+* Retry and dead-letter handling
+* Terraform remote state
+* Disaster-recovery engineering
+
+---
+
+## Architecture
+
+### Application Architecture
+
+```text
+                         Invoice
+                            │
+                            ▼
+                  ┌───────────────────┐
+                  │  Azure Blob       │
+                  │  Storage          │
+                  │  invoices         │
+                  │  container        │
+                  └─────────┬─────────┘
+                            │
+                     BlobCreated Event
+                            │
+                            ▼
+                  ┌───────────────────┐
+                  │   Azure Event     │
+                  │      Grid         │
+                  └─────────┬─────────┘
+                            │
+                            ▼
+                  ┌───────────────────┐
+                  │   BlobProcessor   │
+                  │  Azure Function   │
+                  └─────────┬─────────┘
+                            │
+                            ▼
+                    InvoiceProcessor
+                            │
+                ┌───────────┴───────────┐
+                │                       │
+                ▼                       ▼
+       ┌─────────────────┐     ┌──────────────────┐
+       │ ProcessedInvoices│     │ Failure / Retry │
+       │  Table Storage   │     │                  │
+       └─────────────────┘     └────────┬─────────┘
+                                         │
+                                         ▼
+                              ┌─────────────────────┐
+                              │ InvoiceDeadLetters  │
+                              │    Table Storage    │
+                              └─────────────────────┘
+```
+
+### DevOps Architecture
+
+```text
+Developer
+   │
+   ▼
+GitHub Repository
+   │
+   ├──────── Pull Request ────────┐
+   │                              ▼
+   │                       GitHub Actions CI
+   │                       Build + Validation
+   │
+   └──────── Merge to main ──────►
+                              GitHub Actions CD
+                                      │
+                                      │ OIDC
+                                      ▼
+                               Microsoft Entra ID
+                                      │
+                                      ▼
+                                 Azure RBAC
+                                      │
+                         ┌────────────┴────────────┐
+                         ▼                         ▼
+                    Terraform                Function App
+                  Infrastructure               Deployment
+                         │                         │
+                         └────────────┬────────────┘
+                                      ▼
+                                    Azure
 ```
 
 ---
 
 ## Technology Stack
 
-| Area | Technology |
-|---|---|
-| Language | C# / .NET 10 |
-| Compute | Azure Functions |
-| Hosting | Flex Consumption |
-| Operating System | Linux |
-| Architecture | .NET Isolated Worker |
-| Object Storage | Azure Blob Storage |
-| Processing State | Azure Table Storage |
-| Eventing | Azure Event Grid |
-| Authentication | Managed Identity |
-| Authorization | Azure RBAC |
-| Observability | OpenTelemetry |
-| Application Monitoring | Application Insights |
-| Infrastructure Monitoring | Azure Monitor |
-| Dashboard | Azure Workbook |
-| Infrastructure as Code | Terraform |
-| Terraform Providers | AzureRM + AzAPI |
-| Remote State | Azure Blob Storage |
-| Source Control | Git / GitHub |
-| CI/CD | GitHub Actions |
-| GitHub → Azure Authentication | OpenID Connect (OIDC) |
+| Area                      | Technology           |
+| ------------------------- | -------------------- |
+| Cloud Platform            | Microsoft Azure      |
+| Application               | .NET / C#            |
+| Compute                   | Azure Functions      |
+| Hosting                   | Flex Consumption     |
+| Runtime                   | .NET Isolated Worker |
+| Operating System          | Linux                |
+| Object Storage            | Azure Blob Storage   |
+| Processing State          | Azure Table Storage  |
+| Eventing                  | Azure Event Grid     |
+| Identity                  | Managed Identity     |
+| Authorization             | Azure RBAC           |
+| Observability             | OpenTelemetry        |
+| Application Monitoring    | Application Insights |
+| Infrastructure Monitoring | Azure Monitor        |
+| Dashboard                 | Azure Workbook       |
+| Infrastructure as Code    | Terraform            |
+| Terraform Providers       | AzureRM + AzAPI      |
+| Terraform State           | Azure Blob Storage   |
+| Source Control            | Git / GitHub         |
+| CI/CD                     | GitHub Actions       |
+| Cloud Authentication      | Azure OIDC           |
 
 ---
 
-# How FastShip Works
+# Key Engineering Practices
 
-The main business workflow starts when an invoice file is uploaded to the private `invoices` container.
+## Infrastructure as Code
 
-```text
-Invoice
-   ↓
-Blob Storage
-   ↓
-Event Grid
-   ↓
-BlobProcessor
-   ↓
-InvoiceProcessor
-   ↓
-ProcessedInvoices
-```
+FastShip infrastructure is provisioned and managed with **Terraform** rather than relying exclusively on manual Azure Portal configuration.
 
-Azure Event Grid provides the event-driven connection between Storage and the Function App.
-
-This means the application does not need to continuously poll the storage account looking for new invoices.
-
----
-
-# Application Structure
-
-The application contains several important components.
-
-### `BlobProcessor.cs`
-
-The main invoice-processing Azure Function.
-
-It receives blob events, invokes the invoice-processing service, and produces structured application telemetry.
-
-### `HealthCheck.cs`
-
-Provides an HTTP health endpoint:
-
-```text
-/api/HealthCheck
-```
-
-The endpoint is used to verify that the deployed Function App is responding successfully.
-
-It is also used by the deployment pipeline as a post-deployment validation check.
-
-### `PoisonBlobProcessor.cs`
-
-Handles poison/retry failures.
-
-When processing cannot complete successfully after the runtime retry process, the poison handler records the failure for later investigation and recovery.
-
-### `Program.cs`
-
-Configures:
-
-- Dependency Injection
-- Application services
-- OpenTelemetry
-- Application Insights integration
-
-### Services and Models
-
-The service layer contains the invoice-processing and persistence logic, including:
-
-- Invoice processing
-- Processing-state management
-- Idempotency handling
-- Failure handling
-- Dead-letter persistence
-
----
-
-# Managed Identity
-
-One of the most important security improvements in FastShip was replacing storage credentials with **Azure Managed Identity**.
-
-The Azure Function uses a:
-
-> **System-assigned Managed Identity**
-
-Instead of storing an Azure Storage account key inside the Function App.
-
-The Function identity receives the required Azure RBAC roles:
-
-```text
-Storage Blob Data Owner
-Storage Queue Data Contributor
-Storage Table Data Contributor
-```
-
-The Functions runtime uses identity-based configuration:
-
-```text
-AzureWebJobsStorage__accountName = stfastshipdev001
-AzureWebJobsStorage__credential  = managedidentity
-```
-
-This removes the need to maintain a storage account key in the application configuration.
-
----
-
-## Important Authentication Lesson
-
-During development, the Function App experienced Azure Storage authentication failures even though Managed Identity was configured correctly.
-
-The cause was a stale legacy setting:
-
-```text
-AzureWebJobsStorage
-```
-
-containing an old connection-string configuration.
-
-It existed alongside:
-
-```text
-AzureWebJobsStorage__accountName
-AzureWebJobsStorage__credential
-```
-
-The old setting caused Azure Functions to attempt the wrong authentication method.
-
-Removing it restored Managed Identity authentication.
-
-### Lesson learned
-
-When migrating Azure Functions from connection-string authentication to Managed Identity:
-
-> Do not leave the legacy `AzureWebJobsStorage` connection string alongside the identity-based configuration.
-
----
-
-# Runtime Storage vs Business Storage
-
-FastShip separates **Azure Functions runtime storage** from **business-data access**.
-
-The Functions runtime uses:
-
-```text
-AzureWebJobsStorage__accountName
-AzureWebJobsStorage__credential
-```
-
-Business services use an explicit Azure Table endpoint:
-
-```text
-BusinessTableEndpoint=https://stfastshipdev001.table.core.windows.net
-```
-
-This separation makes the architecture easier to understand, configure, troubleshoot, and maintain.
-
----
-
-# Idempotency
-
-Event-driven systems may receive the same event more than once.
-
-FastShip therefore includes processing-state management to prevent an invoice from being incorrectly processed multiple times.
-
-Processing information is stored in:
-
-```text
-ProcessedInvoices
-```
-
-The application can detect processing state and protect the workflow from conflicting or duplicate work.
-
-This makes invoice processing more reliable than simply assuming every event will arrive exactly once.
-
----
-
-# Retry and Failure Handling
-
-Transient failures are expected in distributed cloud applications.
-
-FastShip therefore supports retry-aware processing.
-
-Testing included simulated transient failures so retry behavior could be observed through application telemetry.
-
-When processing ultimately cannot complete successfully, the poison-message workflow provides a separate recovery path.
-
----
-
-# Dead-Letter Recovery
-
-Failed work is handled by:
-
-```text
-PoisonBlobProcessor
-```
-
-The failure is persisted to:
-
-```text
-InvoiceDeadLetters
-```
-
-This provides a durable record that can be investigated later instead of silently losing failed invoice-processing operations.
-
-The design therefore provides:
-
-- Duplicate awareness
-- Retry visibility
-- Durable failure records
-- Better troubleshooting
-- Recovery information
-
----
-
-# Observability
-
-FastShip includes application observability using:
-
-```text
-OpenTelemetry
-        │
-        ▼
-Application Insights
-        │
-        ▼
-Azure Monitor
-```
-
-Application functions produce structured telemetry rather than relying only on plain text logs.
-
-For example, invoice processing records a custom dimension:
-
-```text
-ProcessingStatus
-```
-
-This allows operational queries to distinguish processing states.
-
----
-
-# Azure Monitor
-
-Azure Monitor is used to detect processing problems.
-
-FastShip includes a scheduled-query alert that checks Application Insights for failed invoice-processing events.
-
-Example KQL:
-
-```kusto
-traces
-| extend ProcessingStatus = tostring(customDimensions["ProcessingStatus"])
-| where ProcessingStatus == "Failed"
-```
-
-The monitoring configuration includes:
-
-- Azure Monitor alert rule
-- Action Group
-- Application Insights
-- Log Analytics integration
-
----
-
-# FastShip Operations Dashboard
-
-An Azure Workbook provides an operational dashboard for the development environment.
-
-The dashboard includes:
-
-### Total Requests
-
-Shows the total number of requests.
-
-### Failed Requests
-
-Shows unsuccessful requests.
-
-### Exceptions
-
-Tracks application exceptions.
-
-### Request Activity
-
-Displays request activity over time.
-
-### Invoice Processing
-
-Groups invoice-processing telemetry by:
-
-```text
-ProcessingStatus
-```
-
-### Dead-Letter Activity
-
-Tracks telemetry associated with dead-letter processing.
-
-The dashboard is managed through Terraform instead of relying only on manual Azure Portal configuration.
-
----
-
-# Storage Hardening
-
-The Azure Storage configuration was hardened for the project scope.
-
-The implementation includes:
-
-- Private containers
-- Blob public access disabled
-- HTTPS-only communication
-- TLS 1.2 minimum where configured
-- Managed Identity authentication
-- Azure RBAC authorization
-- No storage account keys committed to source control
-
----
-
-# Environment Configuration
-
-FastShip separates environment configuration from application code.
-
-For the development environment:
-
-```text
-APP_ENVIRONMENT=Development
-```
-
-Local development configuration remains separate from Azure-hosted configuration.
-
-This makes the application easier to extend later into environments such as:
-
-```text
-Development
-Staging
-Production
-```
-
----
-
-# Infrastructure as Code
-
-FastShip infrastructure is managed with **Terraform**.
-
-Terraform is responsible for creating and managing the Azure application infrastructure.
-
-Major Terraform-managed resources include:
+Terraform manages resources including:
 
 ```text
 Resource Group
@@ -517,57 +199,41 @@ Resource Group
 └── Event Grid Subscription
 ```
 
-The project uses:
-
-```text
-Terraform 1.14.3
-AzureRM Provider
-AzAPI Provider
-```
+This allows infrastructure configuration to be version-controlled, reviewed, and reproduced from code.
 
 ---
 
-# Terraform State
+## Secure Authentication with Managed Identity
 
-Terraform normally stores FastShip state remotely in Azure Blob Storage.
+The Azure Function uses a **system-assigned Managed Identity** instead of storing an Azure Storage account key in application configuration.
 
-```text
-Terraform
-    │
-    ▼
-Azure Storage Account
-    │
-    ▼
-Private tfstate container
-    │
-    ▼
-fastship-dev.tfstate
-```
-
-The Terraform backend is deliberately stored separately from the application resource group.
-
-This prevents application-resource deletion from automatically destroying the Terraform state used to manage that application.
-
-A recovery script is also included:
+Required Azure RBAC roles include:
 
 ```text
-scripts/bootstrap-terraform-backend.sh
+Storage Blob Data Owner
+Storage Queue Data Contributor
+Storage Table Data Contributor
 ```
 
-It can recreate the basic remote-state infrastructure during disaster recovery.
+Identity-based configuration is used for Azure Functions runtime storage:
 
-> Terraform state files may contain sensitive information and must never be committed to the repository.
+```text
+AzureWebJobsStorage__accountName
+AzureWebJobsStorage__credential
+```
+
+This removes the need to maintain a long-lived storage account key for the Function App.
 
 ---
 
-# GitHub Actions Authentication
+## GitHub Actions → Azure OIDC
 
-FastShip uses **Azure OpenID Connect (OIDC)** for GitHub Actions authentication.
+GitHub Actions authenticates to Azure using **OpenID Connect (OIDC)**.
 
 ```text
 GitHub Actions
       │
-      │ OIDC token
+      │ OIDC Token
       ▼
 Microsoft Entra ID
       │
@@ -578,17 +244,17 @@ Azure RBAC
 Azure Resources
 ```
 
-This avoids storing a long-lived Azure client secret in GitHub.
+This avoids storing a long-lived Azure client secret for deployment authentication.
 
-The GitHub deployment identity uses narrowly scoped Azure permissions rather than unnecessary subscription-wide access.
+The deployment identity is assigned the required Azure permissions rather than relying on unnecessary subscription-wide credentials.
 
 ---
 
-# Continuous Integration
+# CI/CD Pipeline
 
-The CI workflow validates changes before they are merged.
+## Continuous Integration
 
-The general CI flow is:
+Pull requests trigger validation before changes are merged.
 
 ```text
 Pull Request
@@ -612,11 +278,11 @@ Terraform Validation
 Terraform Plan
 ```
 
-This provides an automated quality gate before infrastructure/application changes progress further.
+This provides an automated quality gate before infrastructure and application changes progress further.
 
 ---
 
-# Continuous Deployment
+## Continuous Deployment
 
 Changes merged into `main` trigger the deployment workflow.
 
@@ -657,146 +323,322 @@ Deploy Azure Function
 Health Check
 ```
 
-The health check verifies the deployed application through:
+The deployment pipeline validates the deployed application through:
 
 ```text
 /api/HealthCheck
 ```
 
-This means a successful package upload alone is not treated as proof that the application is healthy.
+A successful package deployment alone is therefore not treated as proof that the application is healthy.
 
 ---
 
-# Deployment Safety
+# Application Design
 
-The project includes several deployment safeguards:
+## Event-Driven Processing
 
-- Git-based change tracking
-- Pull-request validation
-- Automated application builds
-- Terraform validation
-- Terraform plan before apply
-- Managed Identity
-- OIDC authentication
-- Post-deployment health checking
-- Application telemetry
-- Azure monitoring
-- Alerting
-- Git checkpoints before destructive infrastructure operations
+The application does not continuously poll Azure Storage for new invoices.
 
-A full end-to-end CI/CD test was successfully demonstrated during the original project implementation.
-
----
-
-# Disaster Recovery
-
-After completing the main project, I started an additional disaster-recovery exercise.
-
-The goal was to answer an important infrastructure question:
-
-> **Can the FastShip environment be completely rebuilt from code without depending on undocumented manual Azure Portal configuration?**
-
-Before deleting infrastructure, the environment was audited against Terraform state.
-
-The audit identified several recovery gaps.
-
----
-
-## Recovery Gap 1 — Function Package Container
-
-The Function App used a package container that existed in Azure but was not originally represented explicitly in Terraform.
-
-The container was added to Terraform so it could be recreated automatically.
-
----
-
-## Recovery Gap 2 — Monitoring Infrastructure
-
-The audit identified monitoring resources that needed to be fully represented in Terraform.
-
-The following were added/confirmed:
+Instead:
 
 ```text
-Action Group
-Processing Failure Alert
-Operations Workbook
+Blob Upload
+    ↓
+Event Grid Event
+    ↓
+Azure Function
+    ↓
+Invoice Processing
+    ↓
+Processing State
 ```
 
-This improved the reproducibility of the monitoring environment.
+Azure Event Grid provides the event-driven connection between Blob Storage and the Azure Function.
 
 ---
 
-## Recovery Gap 3 — Terraform Backend
+## Idempotency
 
-Because Terraform state is required to rebuild infrastructure, the backend itself also needs a recovery process.
+Event-driven systems may receive duplicate events.
 
-A bootstrap script was created:
+FastShip maintains processing state in:
 
-```bash
+```text
+ProcessedInvoices
+```
+
+This allows the application to identify previously processed work and reduce the risk of duplicate invoice processing.
+
+---
+
+## Retry and Failure Handling
+
+Transient failures are expected in distributed cloud applications.
+
+FastShip includes retry-aware processing and a separate failure path for work that cannot be completed successfully.
+
+```text
+Invoice Processing
+       │
+       ├── Success ──► ProcessedInvoices
+       │
+       └── Failure
+             │
+             ▼
+           Retry
+             │
+             ├── Success
+             │
+             └── Persistent Failure
+                    │
+                    ▼
+             Dead-Letter Record
+```
+
+---
+
+## Dead-Letter Recovery
+
+Failed processing is handled through:
+
+```text
+PoisonBlobProcessor
+```
+
+Failed operations are persisted to:
+
+```text
+InvoiceDeadLetters
+```
+
+This provides a durable record for investigation and recovery instead of silently losing failed processing operations.
+
+---
+
+# Observability
+
+FastShip uses structured application telemetry and Azure-native monitoring.
+
+```text
+OpenTelemetry
+      │
+      ▼
+Application Insights
+      │
+      ▼
+Azure Monitor
+```
+
+The application records processing information such as:
+
+```text
+ProcessingStatus
+```
+
+This allows operational queries to distinguish successful and failed processing events.
+
+---
+
+# Azure Monitor & Alerting
+
+Azure Monitor is used to detect invoice-processing failures.
+
+Example KQL:
+
+```kusto
+traces
+| extend ProcessingStatus = tostring(customDimensions["ProcessingStatus"])
+| where ProcessingStatus == "Failed"
+```
+
+Monitoring includes:
+
+* Application Insights
+* Azure Monitor
+* Log Analytics integration
+* Scheduled query alert
+* Action Group
+* Operations Workbook
+
+---
+
+# Operations Dashboard
+
+An Azure Workbook provides an operational view of the development environment.
+
+The dashboard includes:
+
+* Total requests
+* Failed requests
+* Exceptions
+* Request activity
+* Invoice processing status
+* Dead-letter activity
+
+The monitoring dashboard is managed through Terraform rather than relying exclusively on manual Azure Portal configuration.
+
+---
+
+# Health Checks
+
+The application provides an HTTP health endpoint:
+
+```text
+/api/HealthCheck
+```
+
+The health endpoint is used to verify that the deployed Function App is responding successfully.
+
+It is also used as a post-deployment validation step in the CI/CD process.
+
+---
+
+# Troubleshooting Experience
+
+One of the practical troubleshooting issues encountered during development involved Azure Functions Storage authentication.
+
+The Function App had been configured for Managed Identity:
+
+```text
+AzureWebJobsStorage__accountName
+AzureWebJobsStorage__credential
+```
+
+However, an older:
+
+```text
+AzureWebJobsStorage
+```
+
+connection-string configuration was still present.
+
+This caused the runtime to attempt the wrong authentication method.
+
+Removing the legacy configuration restored Managed Identity authentication.
+
+### Lesson
+
+When migrating an Azure Function from connection-string authentication to Managed Identity, legacy storage connection-string configuration should be removed rather than left alongside the identity-based configuration.
+
+---
+
+# Runtime Storage vs Business Storage
+
+FastShip separates Azure Functions runtime storage from application business-data access.
+
+### Function Runtime Storage
+
+```text
+AzureWebJobsStorage__accountName
+AzureWebJobsStorage__credential
+```
+
+### Business Storage
+
+```text
+BusinessTableEndpoint=https://<storage-account>.table.core.windows.net
+```
+
+This separation makes the application configuration easier to understand, troubleshoot, and maintain.
+
+---
+
+# Storage Security
+
+The project applies several storage security controls:
+
+* Private storage containers
+* Blob public access disabled
+* HTTPS-only communication
+* TLS 1.2 minimum where configured
+* Managed Identity authentication
+* Azure RBAC authorization
+* No storage account keys committed to source control
+
+Sensitive credentials and configuration values are kept outside the repository.
+
+---
+
+# Terraform Remote State
+
+Terraform state is stored remotely in Azure Blob Storage.
+
+```text
+Terraform
+    │
+    ▼
+Azure Storage Account
+    │
+    ▼
+Private tfstate Container
+    │
+    ▼
+fastship-dev.tfstate
+```
+
+The Terraform backend is maintained separately from the application resource group.
+
+A recovery script is also included:
+
+```text
 scripts/bootstrap-terraform-backend.sh
 ```
 
-This can recreate the backend:
+The purpose is to provide a way to recreate the basic remote-state infrastructure during disaster recovery.
 
-```text
-Resource Group
-      │
-      ▼
-Storage Account
-      │
-      ▼
-Private tfstate Container
-```
+> Terraform state can contain sensitive infrastructure information and must not be committed to source control.
 
 ---
 
-## Recovery Gap 4 — Event Grid Bootstrap Dependency
+# Disaster Recovery Engineering
 
-Event Grid calls the Azure Functions blob webhook using the Function host's:
+A disaster-recovery exercise was performed to test an important infrastructure question:
 
-```text
-blobs_extension
-```
+> Can the FastShip environment be rebuilt from code without depending on undocumented manual Azure Portal configuration?
 
-system key.
+The exercise identified several dependencies and recovery gaps, including:
 
-A newly recreated Function App generates a **new key**.
+* Function package container
+* Monitoring resources
+* Terraform backend
+* Event Grid / Function host key dependency
 
-That creates a dependency:
-
-```text
-Function App must exist
-        │
-        ▼
-Function code must run
-        │
-        ▼
-Function host initializes
-        │
-        ▼
-New blobs_extension key exists
-        │
-        ▼
-Event Grid webhook can be created
-```
-
-This meant a clean rebuild could not safely create everything in one Terraform phase.
+These gaps were addressed by improving the Terraform configuration and recovery process.
 
 ---
 
-# Two-Phase Disaster-Recovery Design
+## Two-Phase Event Grid Recovery
 
-Terraform was updated to support a two-phase recovery process.
+A newly recreated Azure Function generates a new `blobs_extension` system key.
 
-## Phase 1 — Core Infrastructure
+Event Grid requires this key for the Function webhook.
 
-Event Grid is temporarily disabled:
+This creates a dependency:
 
-```hcl
+```text
+Function App
+     │
+     ▼
+Function Host Initializes
+     │
+     ▼
+New blobs_extension Key
+     │
+     ▼
+Event Grid Subscription
+```
+
+To handle this dependency, the recovery process uses two phases.
+
+### Phase 1 — Core Infrastructure
+
+Event Grid creation is temporarily disabled:
+
+```text
 create_eventgrid_subscription = false
 ```
 
-Terraform can then create:
+Terraform creates the core infrastructure:
 
 ```text
 Resource Group
@@ -812,13 +654,9 @@ Monitoring
 Workbook
 ```
 
-without requiring the new Function system key.
+### Phase 2 — Event Grid
 
----
-
-## Phase 2 — Event Grid
-
-After deploying the application:
+After the Function application is deployed:
 
 ```text
 Deploy Function Code
@@ -830,29 +668,24 @@ Function Host Initializes
 Retrieve New blobs_extension Key
         │
         ▼
-Supply Key Securely to Terraform
-        │
-        ▼
 Create Event Grid Subscription
 ```
 
-This removes the clean-rebuild dependency problem.
+This removes the Function-key dependency from the initial infrastructure creation phase.
 
 ---
 
-# Disaster-Recovery Test
+# Disaster Recovery Test
 
-The FastShip development resource group was deliberately deleted during the recovery exercise.
+During the recovery exercise, the development resource group was deliberately deleted.
 
-Azure confirmed that the application resource group no longer existed.
-
-Terraform then generated the Phase 1 recovery plan:
+Terraform subsequently generated a Phase 1 recovery plan:
 
 ```text
 Plan: 15 to add, 0 to change, 0 to destroy.
 ```
 
-The plan was reviewed before applying it.
+The plan was reviewed before being applied.
 
 Terraform successfully recreated the core infrastructure:
 
@@ -860,115 +693,57 @@ Terraform successfully recreated the core infrastructure:
 Apply complete! Resources: 15 added, 0 changed, 0 destroyed.
 ```
 
-This demonstrated that the core FastShip infrastructure could be reconstructed from Terraform after deletion.
+This demonstrated that the core FastShip Azure infrastructure could be reconstructed from Terraform after deletion.
+
+### Current DR Status
+
+The original FastShip application and CI/CD implementation were completed before the disaster-recovery exercise.
+
+The DR exercise is a separate ongoing engineering exercise covering:
+
+```text
+Infrastructure Audit
+        ↓
+Recovery Gaps Identified
+        ↓
+Terraform Improvements
+        ↓
+Backend Recovery Script
+        ↓
+Two-Phase Event Grid Recovery
+        ↓
+Core Infrastructure Rebuild
+        ↓
+Application Recovery
+        ↓
+End-to-End Recovery Validation
+```
 
 ---
 
-# Current Disaster-Recovery Status
+# Environment Configuration
 
-The original FastShip Cloud/DevOps project was completed before the disaster-recovery exercise began.
+FastShip separates environment configuration from application code.
 
-Current DR progress:
-
-```text
-Infrastructure Audit                    
-Terraform Recovery Gaps Identified      
-Package Container Added to Terraform    
-Monitoring Added to Terraform           
-Workbook Added to Terraform             
-Backend Recovery Script Created         
-Two-Phase Event Grid Recovery Designed  
-Application Resource Group Deleted      
-Core Infrastructure Rebuilt             
-.NET Application Build                  
-Function Deployment                     
-Function Host Health Verification       
-Event Grid Restoration                  
-Remote State Restoration                
-GitHub OIDC RBAC Restoration            
-Final End-to-End Recovery Test          
-```
-
-The current recovery checkpoint is **Function host health verification** before the new `blobs_extension` key is retrieved and Event Grid is restored.
-
----
-
-# Key Engineering Lessons
-
-This project provided several important practical lessons.
-
-### 1. Identity configuration must match runtime behavior
-
-Simply assigning a Managed Identity is not enough. Application configuration must actually cause the runtime to use that identity.
-
-### 2. Remove legacy authentication configuration
-
-Old connection strings can override or interfere with identity-based configuration.
-
-### 3. Separate runtime and business storage concerns
-
-Azure Functions runtime storage and application business storage should be treated as separate concerns.
-
-### 4. Build observability into the application
-
-Logs, structured telemetry, health checks, dashboards, and alerts should be part of the architecture rather than added only after failures occur.
-
-### 5. Design for duplicate events
-
-Event-driven systems should not assume exactly-once delivery.
-
-Idempotency is therefore an important application concern.
-
-### 6. Failed work must remain recoverable
-
-Retries help with temporary failures, while durable dead-letter records help investigate failures that cannot be resolved automatically.
-
-### 7. Infrastructure as Code must represent the real environment
-
-A Terraform configuration is not truly reproducible if important live resources exist only because somebody created them manually.
-
-### 8. Protect Terraform state
-
-Remote Terraform state is part of the infrastructure-management system and needs its own security and recovery strategy.
-
-### 9. Prefer OIDC over long-lived deployment secrets
-
-GitHub Actions can authenticate to Azure using federated identity rather than storing a reusable Azure client secret.
-
-### 10. Disaster recovery exposes hidden dependencies
-
-The `blobs_extension` Event Grid dependency was much easier to discover through a real rebuild exercise than through architecture diagrams alone.
-
----
-
-# Security Principles
-
-The repository should never contain:
+The development environment uses:
 
 ```text
-Storage account keys
-Function host/system key values
-Azure client secrets
-Credential-bearing connection strings
-Terraform state files
-Sensitive environment files
+APP_ENVIRONMENT=Development
 ```
 
-The project instead uses:
+The configuration approach is designed to support separate environments such as:
 
 ```text
-Managed Identity
-Azure RBAC
-GitHub OIDC
-Protected GitHub secrets where required
-Private storage containers
+Development
+Staging
+Production
 ```
+
+without coupling environment-specific values directly to the application source code.
 
 ---
 
 # Repository Structure
-
-A simplified repository layout:
 
 ```text
 blobprocessor/
@@ -1000,36 +775,57 @@ blobprocessor/
         └── cd.yml
 ```
 
+> Sensitive local configuration and Terraform state files are intentionally excluded from source control.
+
 ---
 
-# Project Status
+# Key Engineering Lessons
 
-| Area | Status |
-|---|---|
-| Azure Functions application | ✅ Complete |
-| Event-driven invoice processing | ✅ Complete |
-| Managed Identity | ✅ Complete |
-| Runtime/business storage separation | ✅ Complete |
-| Observability | ✅ Complete |
-| Monitoring and alerts | ✅ Complete |
-| Operations dashboard | ✅ Complete |
-| Idempotency | ✅ Complete |
-| Retry handling | ✅ Complete |
-| Dead-letter recovery | ✅ Complete |
-| Storage hardening | ✅ Complete |
-| Environment configuration | ✅ Complete |
-| Terraform Infrastructure as Code | ✅ Complete |
-| Terraform remote state | ✅ Complete |
-| GitHub OIDC | ✅ Complete |
-| CI workflow | ✅ Complete |
-| CD workflow | ✅ Complete |
-| End-to-end CI/CD validation | ✅ Complete |
+### 1. Identity configuration must match runtime behavior
+
+Assigning a Managed Identity is not sufficient by itself. Application configuration must cause the runtime to actually use the identity.
+
+### 2. Remove legacy authentication configuration
+
+Old connection strings can interfere with identity-based authentication.
+
+### 3. Separate runtime and business storage
+
+Azure Functions runtime storage and application business storage should be treated as separate concerns.
+
+### 4. Build observability into the application
+
+Logs, structured telemetry, health checks, dashboards, and alerts should be part of the architecture.
+
+### 5. Design for duplicate events
+
+Event-driven systems should not assume exactly-once delivery. Idempotency is therefore an important application concern.
+
+### 6. Make failed work recoverable
+
+Retries help with transient failures, while durable dead-letter records provide information for investigating failures that cannot be resolved automatically.
+
+### 7. Terraform must represent the real environment
+
+Infrastructure is not fully reproducible if important live resources exist only because somebody created them manually.
+
+### 8. Protect Terraform state
+
+Remote Terraform state is part of the infrastructure-management system and requires its own security and recovery strategy.
+
+### 9. Prefer OIDC over long-lived deployment secrets
+
+GitHub Actions can authenticate to Azure using federated identity rather than storing a reusable Azure client secret.
+
+### 10. Disaster recovery exposes hidden dependencies
+
+The Event Grid / Function `blobs_extension` dependency became apparent through an actual rebuild exercise and demonstrated the value of testing infrastructure recovery rather than assuming it works.
 
 ---
 
 # What This Project Demonstrates
 
-FastShip demonstrates hands-on experience with:
+This project demonstrates hands-on experience with:
 
 ```text
 Azure Functions
@@ -1056,100 +852,65 @@ Idempotency
 Retry Handling
 Dead-Letter Recovery
 Monitoring & Alerting
+Health Checks
 Troubleshooting
 Disaster Recovery
 ```
 
 ---
 
-# Project Journey
+# Project Status
 
-FastShip evolved through the following engineering stages:
-
-```text
-Application Development
-        ↓
-Azure Storage Integration
-        ↓
-Event-Driven Processing
-        ↓
-Managed Identity
-        ↓
-Runtime / Business Storage Separation
-        ↓
-Observability
-        ↓
-Monitoring & Alerts
-        ↓
-Idempotency & Recovery
-        ↓
-Storage Hardening
-        ↓
-Environment Configuration
-        ↓
-Terraform Infrastructure as Code
-        ↓
-Remote Terraform State
-        ↓
-GitHub Repository
-        ↓
-Azure OIDC
-        ↓
-Continuous Integration
-        ↓
-Continuous Deployment
-        ↓
-Deployment Validation
-        ↓
-End-to-End Testing
-        ↓
-Disaster-Recovery Engineering
-```
+| Area                                | Status      |
+| ----------------------------------- | ----------- |
+| Azure Functions application         | Complete    |
+| Event-driven invoice processing     | Complete    |
+| Managed Identity                    | Complete    |
+| Azure RBAC                          | Complete    |
+| Runtime/business storage separation | Complete    |
+| Observability                       | Complete    |
+| Monitoring and alerts               | Complete    |
+| Operations dashboard                | Complete    |
+| Idempotency                         | Complete    |
+| Retry handling                      | Complete    |
+| Dead-letter recovery                | Complete    |
+| Storage hardening                   | Complete    |
+| Terraform Infrastructure as Code    | Complete    |
+| Terraform remote state              | Complete    |
+| GitHub OIDC                         | Complete    |
+| CI workflow                         | Complete    |
+| CD workflow                         | Complete    |
+| End-to-end CI/CD validation         | Complete    |
+| Disaster-recovery exercise          | In progress |
 
 ---
 
-## Conclusion
+# Skills Demonstrated
 
-FastShip started as an Azure Functions invoice-processing application and evolved into a complete **Cloud and DevOps engineering project**.
+**Azure Cloud:**
+Azure Functions, Blob Storage, Table Storage, Event Grid, Application Insights, Azure Monitor, Log Analytics, Azure Workbooks
 
-The project demonstrates how application development connects with:
+**DevOps:**
+Terraform, Infrastructure as Code, GitHub Actions, CI/CD, OIDC, deployment validation, remote state
 
-- Cloud infrastructure
-- Identity and access management
-- Event-driven architecture
-- Infrastructure as Code
-- Observability
-- Monitoring
-- Reliability engineering
-- CI/CD
-- Deployment security
-- Troubleshooting
-- Disaster recovery
+**Cloud Security:**
+Managed Identity, Azure RBAC, identity-based authentication, secure storage configuration
 
-The most important outcome of the project is not simply that the application runs in Azure.
+**Reliability:**
+Idempotency, retries, dead-letter handling, health checks, monitoring, alerting, disaster recovery
 
-It is that the system can be **built, secured, observed, deployed, troubleshot, and increasingly reproduced from code using established Cloud/DevOps practices**.
+**Engineering:**
+.NET/C#, event-driven architecture, troubleshooting, infrastructure recovery, operational observability
 
 ---
 
-### FastShip
+# Author
 
-**Cloud-native invoice processing system built with Azure Functions, .NET, Terraform, Managed Identity, Event Grid, monitoring, and GitHub Actions CI/CD.**
+**Mojeed Tijani**
+Cloud Engineer (Azure )
 
----
+### Certifications
 
-## Author
-
-Mojeed Tijani
-
-Azure Cloud Infrastructure Engineer
-
-## Certifications
-
-• AZ-104 – Microsoft Azure Administrator
-
-• KCNA – Kubernetes and Cloud Native Associate
-
-• FinOps Certified Engineer
-
-
+* AZ-104 — Microsoft Azure Administrator
+* KCNA — Kubernetes and Cloud Native Associate
+* FinOps Certified Engineer
