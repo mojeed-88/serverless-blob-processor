@@ -4,6 +4,11 @@ An event-driven invoice processing platform built with **Azure Functions, .NET, 
 
 FastShip demonstrates how to **provision, secure, deploy, monitor, troubleshoot, and recover** a cloud-native Azure workload using Infrastructure as Code and modern DevOps practices.
 
+## Recruiter Summary
+
+**FastShip is an end-to-end Azure Cloud & DevOps engineering project demonstrating production-oriented practices across infrastructure, security, automation, observability, and reliability.** The platform uses **Terraform** to provision Azure infrastructure, **Managed Identity and Azure RBAC** for secure access, **GitHub Actions with OIDC** for CI/CD, and **Azure Monitor/Application Insights** for operational visibility. The event-driven architecture uses **Azure Functions, Blob Storage, Event Grid, and Table Storage**, with **idempotency, retry handling, dead-letter recovery, health checks, and disaster-recovery engineering** demonstrating practical cloud reliability and troubleshooting experience.
+
+
 ---
 
 ## Project Overview
